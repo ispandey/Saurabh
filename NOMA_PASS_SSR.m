@@ -117,10 +117,8 @@ for pp = 1:length(P_fig1_dBm)
         xu_s = xu_s(idx_s);
         yu_s = yu_s(idx_s);
 
-        he_w = max(he_all);     % worst (strongest) eavesdropper channel
-
         % Step 5 (Algorithm 1): power allocation via SCA/CVX  [Prob. P3]
-        alpha = SCA_power(h_s, he_w, P_W, sigma2, N, Rth, MAX_SCA);
+        alpha = SCA_power(h_s, he_all, P_W, sigma2, N, Rth, MAX_SCA);
 
         % Step 6 (Algorithm 1): PA position via PSO            [Prob. P4]
         xAnt = PSO_position(xu_s, yu_s, xe, ye, ...
@@ -129,7 +127,7 @@ for pp = 1:length(P_fig1_dBm)
         % Evaluate and record SSR
         h_new  = chanGain(xAnt, xu_s, yu_s, G, d);
         he_new = chanGain(xAnt, xe,   ye,   G, d);
-        SSR_conv(pp, r) = totalSSR(h_new, max(he_new), alpha, P_W, sigma2, N);
+        SSR_conv(pp, r) = totalSSR(h_new, he_new, alpha, P_W, sigma2, N);
     end
 
     fprintf('  P = %2d dBm  =>  converged SSR = %.3f bits/s/Hz\n', ...
@@ -174,30 +172,29 @@ for pidx = 1:nPts
 
         [h_js, idx_j] = sort(h_j, 'ascend');
         xu_j = xu_j(idx_j);   yu_j = yu_j(idx_j);
-        he_wj = max(he_j);
 
-        alpha_j = SCA_power(h_js, he_wj, P_W, sigma2, N, Rth, MAX_SCA);
+        alpha_j = SCA_power(h_js, he_j, P_W, sigma2, N, Rth, MAX_SCA);
         xAnt_j  = PSO_position(xu_j, yu_j, xe, ye, ...
                                alpha_j, P_W, sigma2, G, d, L, PSO_S, PSO_T);
     end
     h_j  = chanGain(xAnt_j, xu_j, yu_j, G, d);
     he_j = chanGain(xAnt_j, xe,   ye,   G, d);
-    SSR_proposed(pidx) = totalSSR(h_j, max(he_j), alpha_j, P_W, sigma2, N);
+    SSR_proposed(pidx) = totalSSR(h_j, he_j, alpha_j, P_W, sigma2, N);
 
     %--- Scheme 2: Fixed antenna at waveguide centre + CVX ---
     xAnt_f = L / 2;
     h_f    = chanGain(xAnt_f, xu, yu, G, d);
     he_f   = chanGain(xAnt_f, xe, ye, G, d);
     [h_fs, ~] = sort(h_f, 'ascend');
-    alpha_f   = SCA_power(h_fs, max(he_f), P_W, sigma2, N, Rth, MAX_SCA);
-    SSR_fixedAnt(pidx) = totalSSR(h_fs, max(he_f), alpha_f, P_W, sigma2, N);
+    alpha_f   = SCA_power(h_fs, he_f, P_W, sigma2, N, Rth, MAX_SCA);
+    SSR_fixedAnt(pidx) = totalSSR(h_fs, he_f, alpha_f, P_W, sigma2, N);
 
     %--- Scheme 3: No optimisation (fixed PA at L/3, equal power) ---
     xAnt_n = L / 3;
     h_n    = chanGain(xAnt_n, xu, yu, G, d);
     he_n   = chanGain(xAnt_n, xe, ye, G, d);
     [h_ns, ~] = sort(h_n, 'ascend');
-    SSR_noopt(pidx) = totalSSR(h_ns, max(he_n), ones(1,N)/N, P_W, sigma2, N);
+    SSR_noopt(pidx) = totalSSR(h_ns, he_n, ones(1,N)/N, P_W, sigma2, N);
 
     fprintf('  P=%2d dBm  Proposed=%.2f  Fixed=%.2f  NoOpt=%.2f\n', ...
             P_sweep(pidx), SSR_proposed(pidx), SSR_fixedAnt(pidx), SSR_noopt(pidx));
@@ -231,14 +228,14 @@ for pidx = 1:nPts3
     he_0   = chanGain(xAnt_0, xe, ye, G, d);
     [h_0s, idx_0] = sort(h_0, 'ascend');
     xu_0   = xu(idx_0);   yu_0 = yu(idx_0);
-    alpha_0 = SCA_power(h_0s, max(he_0), P_W3, sigma2, N, Rth, MAX_SCA);
+    alpha_0 = SCA_power(h_0s, he_0, P_W3, sigma2, N, Rth, MAX_SCA);
 
     %--- PSO positioning ---
     xAnt_p = PSO_position(xu_0, yu_0, xe, ye, ...
                           alpha_0, P_W3, sigma2, G, d, L, PSO_S, PSO_T);
     h_p    = chanGain(xAnt_p, xu_0, yu_0, G, d);
     he_p   = chanGain(xAnt_p, xe,   ye,   G, d);
-    SSR_PSO_f(pidx) = totalSSR(h_p, max(he_p), alpha_0, P_W3, sigma2, N);
+    SSR_PSO_f(pidx) = totalSSR(h_p, he_p, alpha_0, P_W3, sigma2, N);
 
     %--- 1-D exhaustive search over 500 candidate positions ---
     xGrid    = linspace(0, L, 500);
@@ -246,7 +243,7 @@ for pidx = 1:nPts3
     for jj = 1:500
         h_g  = chanGain(xGrid(jj), xu_0, yu_0, G, d);
         he_g = chanGain(xGrid(jj), xe,   ye,   G, d);
-        ssr_grid(jj) = totalSSR(h_g, max(he_g), alpha_0, P_W3, sigma2, N);
+        ssr_grid(jj) = totalSSR(h_g, he_g, alpha_0, P_W3, sigma2, N);
     end
     SSR_1D_f(pidx) = max(ssr_grid);
 
@@ -283,10 +280,11 @@ end
 
 %% -- totalSSR --------------------------------------------------
 %  Total secrecy sum rate, Eq. (10).
-%  h    (1xN): channel gains sorted ascending  h_1 <= ... <= h_N
-%  he_w (scalar): strongest eavesdropper channel gain (worst case)
+%  h   (1xN): channel gains sorted ascending  h_1 <= ... <= h_N
+%  he  (1xK): channel gains of all K eavesdroppers
 %  alpha(1xN): power coefficients aligned with h
-function total = totalSSR(h, he_w, alpha, P, sigma2, N)
+function total = totalSSR(h, he, alpha, P, sigma2, N)
+    K     = length(he);
     total = 0;
     for i = 1:N
         % Legitimate user SINR (Eq. 6)
@@ -296,14 +294,14 @@ function total = totalSSR(h, he_w, alpha, P, sigma2, N)
         gamma_i = alpha(i) / (Ui + wi);
         Ri      = log2(1 + gamma_i);           % Eq. (7)
 
-        % Eavesdropper SINR for user i (Eq. 8, worst case)
-        % Eavesdropper has no SIC knowledge -> all other users are interference
-        Ue      = 1 - alpha(i);                % sum_{j!=i} alpha_j
-        we      = sigma2 / (he_w * P);         % sigma^2/(P*h_{e,worst})
-        gamma_e = alpha(i) / (Ue + we);
-        Re      = log2(1 + gamma_e);           % Eq. (9)
-
-        total = total + max(0, Ri - Re);       % Eq. (10)
+        % Sum secrecy contribution over all K eavesdroppers (Eq. 10)
+        Ue = 1 - alpha(i);                     % sum_{j!=i} alpha_j
+        for k = 1:K
+            we_k    = sigma2 / (he(k) * P);    % sigma^2/(P*h_{e,k})
+            gamma_e = alpha(i) / (Ue + we_k);
+            Re      = log2(1 + gamma_e);       % Eq. (9)
+            total   = total + max(0, Ri - Re); % Eq. (10)
+        end
     end
 end
 
@@ -312,13 +310,14 @@ end
 %  Solves Problem P3, Eq. (17).
 %
 %  h   (1xN) : channel gains sorted ASCENDING
-%  he_w      : max eavesdropper channel gain
+%  he  (1xK) : channel gains of all K eavesdroppers
 %  Rth (1xN) : minimum-rate requirements (bits/s/Hz)
-function alpha_out = SCA_power(h, he_w, P, sigma2, N, Rth, max_iter)
+function alpha_out = SCA_power(h, he, P, sigma2, N, Rth, max_iter)
 
+    K   = length(he);
     % Noise-to-signal ratios (constants for given xAnt and P)
-    w   = sigma2 ./ (h * P);       % 1xN  w_i = sigma^2/(P*h_i)
-    we  = sigma2  / (he_w * P);    % scalar  w_e = sigma^2/(P*h_{e,worst})
+    w   = sigma2 ./ (h  * P);       % 1xN  w_i   = sigma^2/(P*h_i)
+    we  = sigma2 ./ (he * P);       % 1xK  we_k  = sigma^2/(P*h_{e,k})
     gth = (2.^Rth - 1)';           % Nx1  gamma^th_i = 2^{R^th_i} - 1
 
     % Interference matrix: M(i,j)=1 for j>i, so U = M*alpha gives
@@ -340,18 +339,20 @@ function alpha_out = SCA_power(h, he_w, P, sigma2, N, Rth, max_iter)
             % U_a(i) = sum_{j>i} a_j  (affine in a)
             U_a = M * a;
 
-            % Objective: sum_i S^lb_i (Eq. 17a)
-            % S^lb_i = log2(U_i+a_i+w_i) + log2(1-a_i+w_e)
-            %          - (U_i+w_i)/(log2 * r_tilde_i) + constants
-            % All three terms: concave + concave + affine -> concave.
-            % Constants (-log2(r_tilde_i), -log2(1+w_e)) omitted as they
-            % do not affect the argmax.
+            % Objective: sum_i sum_k S^lb_{i,k}  (Eq. 17a, summed over K eaves.)
+            % For each user i and eavesdropper k:
+            %   S^lb_{i,k} = K*log2(U_i+a_i+w_i) + log2(1-a_i+we_k)
+            %                - K*(U_i+w_i)/(ln2 * r_tilde_i)  + constants
+            % The K-independent terms (log2(U+a+w) and the linearisation of
+            % -log2(U+w)) appear once per eavesdropper, so they are scaled by K.
             obj = 0;
             for ii = 1:N
                 obj = obj ...
-                    + log(U_a(ii) + a(ii) + w(ii)) / log(2) ...
-                    + log(1 - a(ii) + we)           / log(2) ...
-                    - (U_a(ii) + w(ii)) / (log(2) * r_tilde(ii));
+                    + K * log(U_a(ii) + a(ii) + w(ii)) / log(2) ...
+                    - K * (U_a(ii) + w(ii)) / (log(2) * r_tilde(ii));
+                for kk = 1:K
+                    obj = obj + log(1 - a(ii) + we(kk)) / log(2);
+                end
             end
 
             maximize(obj)
@@ -441,19 +442,20 @@ function val = ssr_xAnt(xAnt, xu_s, yu_s, xe, ye, ...
                          alpha, P, sigma2, N, G, d)
     h  = G ./ ((xAnt - xu_s).^2 + yu_s.^2 + d^2);
     he = G ./ ((xAnt - xe  ).^2 + ye  .^2 + d^2);
-    he_w = max(he);
-    val  = 0;
+    K  = length(he);
+    val = 0;
     for i = 1:N
         Ui      = sum(alpha(i+1:end));
         wi      = sigma2 / (h(i) * P);
         gamma_i = alpha(i) / (Ui + wi);
         Ri      = log2(1 + gamma_i);
 
-        Ue      = 1 - alpha(i);
-        we      = sigma2 / (he_w * P);
-        gamma_e = alpha(i) / (Ue + we);
-        Re      = log2(1 + gamma_e);
-
-        val = val + max(0, Ri - Re);
+        Ue = 1 - alpha(i);
+        for k = 1:K
+            we_k    = sigma2 / (he(k) * P);
+            gamma_e = alpha(i) / (Ue + we_k);
+            Re      = log2(1 + gamma_e);
+            val     = val + max(0, Ri - Re);
+        end
     end
 end
